@@ -24,7 +24,7 @@ initialize_routes(app)
 app.register_blueprint(user_bp, url_prefix='/user')
 app.register_blueprint(info_bp, url_prefix='/info')
 app.register_blueprint(session_bp, url_prefix = '/sesh')
-app.register_blueprint(chat_bp, url_prefix='/llm')
+app.register_blueprint(chat_bp, url_prefix='/chat')
 
 if __name__ == '__main__':
     app.run(debug=True)
