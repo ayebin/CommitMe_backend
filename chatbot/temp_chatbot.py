@@ -1,24 +1,30 @@
-import requests
 import os
+import requests
 from dotenv import load_dotenv
 
-HF_TOKEN = ""
+dotenv_path = os.path.join(os.path.dirname(__file__), 'api.env')
+load_dotenv(dotenv_path)
 
-API_URL = "https://api-inference.huggingface.co/models/gpt2"
+API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
+url = "https://api.perplexity.ai/chat/completions"  
 headers = {
-    "Authorization": f"Bearer {HF_TOKEN}",
+    "Authorization": f"Bearer {API_KEY}",
     "Content-Type": "application/json"
 }
 
 data = {
-    "inputs": "The capital of South Korea is",
-    "parameters": {
-        "max_new_tokens": 20
-    }
+    "model": "sonar",
+    "messages": [
+        {"role": "user", "content": "Explain quantum computing in simple terms"}
+    ],
+    "temperature": 0.7
 }
 
-response = requests.post(API_URL, headers=headers, json=data)
+response = requests.post(url, headers=headers, json=data)
 
-print("Status Code:", response.status_code)
-print("Raw Response:", response.text)
+if response.status_code == 200:
+    result = response.json()
+    print("Response:", result["choices"][0]["message"]["content"])
+else:
+    print("Error:", response.status_code, response.text)
