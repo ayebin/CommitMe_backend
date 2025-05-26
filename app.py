@@ -7,6 +7,7 @@ from routes.user_routes import user_bp # 유저 번호 자동 생성
 from routes.info_routes import info_bp
 from routes.session_routes import session_bp # 세션
 from routes.chatbot_routes import chat_bp # 메시지
+from routes.report_routes import report_bp
 
 
 app = Flask(__name__)
@@ -25,6 +26,7 @@ app.register_blueprint(user_bp, url_prefix='/user')
 app.register_blueprint(info_bp, url_prefix='/info')
 app.register_blueprint(session_bp, url_prefix = '/sesh')
 app.register_blueprint(chat_bp, url_prefix='/chat')
+app.register_blueprint(report_bp, url_prefix='/report')
 
 if __name__ == '__main__':
     app.run(debug=True)

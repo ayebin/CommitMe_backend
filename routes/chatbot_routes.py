@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from sqlalchemy.sql import exists
 from models import db, Session, Message, Sender, Info
 from datetime import datetime
+from chatbot import get_response
 
 chat_bp = Blueprint('chat_bp', __name__)
 
@@ -59,9 +60,7 @@ def send_message():
     )
     db.session.add(user_message)
     db.session.commit()
-    
-    # 나중에 쳇봇 연결
-    
+
     # user_id로 정보 가져오기
     if session_id not in info_cache and user_parent_id is None:
         info = Info.query.filter_by(info_id=info_id).first()
@@ -75,10 +74,10 @@ def send_message():
         }
         
     # print(info_cache[session_id]['position']) 확인용
+
     
-    # 그리고 parent_id가 뭐였지? 
-    
-    response = 'hello'
+    #response = get_response(info_cache, session_id, role, message, temperature, max_token)
+    response = 'Hello'
     
     bot_message = Message(
         session_id = session_id,
