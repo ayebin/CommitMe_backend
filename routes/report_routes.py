@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from sqlalchemy.sql import exists
 from models import db, Session, Message, Sender, Info
 from datetime import datetime
-from chatbot import get_response
+#from chatbot import get_response
 
 report_bp = Blueprint('report_bp', __name__)
 

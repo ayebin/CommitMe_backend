@@ -38,6 +38,13 @@ class Sender(Enum):
     user = 'user'
     system = 'system'
 
+class Message_type(Enum):
+    interview_q = 'interview_q' # 면접 질문
+    question = 'question' # 질의응답에서 유저
+    answer = 'answer' # 질의응답에서 챗봇
+    fin_response = 'fin_response' # 최종 답변
+    feedback = 'feedback' # 최종 답변에 대한 피드백
+
 class Message(db.Model):
     __tablename__ = 'message'
     message_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -46,6 +53,7 @@ class Message(db.Model):
     info_id = db.Column(db.Integer, db.ForeignKey('info.info_id'), nullable = False)
     id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable = False)
     sender = db.Column(db.Enum(Sender), nullable=True)
+    message_type = db.Column(db.Enum(Message_type), nullable = True)
     content = db.Column(db.String(5000))
     role = db.Column(db.String(100))
     temperature = db.Column(db.Float)

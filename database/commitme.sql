@@ -60,6 +60,7 @@ CREATE TABLE `message` (
   `id` int NOT NULL,
   `parent_id` int DEFAULT NULL,
   `sender` enum('user','system') NOT NULL,
+  `message_type` enum('interview_q', 'question', 'answer', 'fin_response', 'feedback') NOT NULL,
   `content` varchar(5000) NOT NULL,
   `role` varchar(500) DEFAULT NULL,
   `temperature` float DEFAULT NULL,
