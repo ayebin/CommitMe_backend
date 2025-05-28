@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, Response
 from sqlalchemy.sql import exists
 from models import db, Session, Message, Sender, Info
 from datetime import datetime
-from chatbot import gen_q_response
+from chatbot import gen_q_response, qna_response, feedback_response, report_response
 import json
 
 chat_bp = Blueprint('chat_bp', __name__)
@@ -22,6 +22,17 @@ def send_message():
     role = data.get('role')  # 면접관 성격
     feedbackLength = data.get('feedbackLength')  # max_token
     feedbackType = data.get('feedbackType')      # temperature
+    
+    if session_id not in info_cache:
+        info = Info.query.filter_by(info_id=info_id).first()
+        info_cache[session_id] = {
+            'position': info.position,
+            'interest': info.interest,
+            'history': info.history,
+            'language': info.language,
+            'project': info.project,
+            'resume': info.resume,
+        }
 
     # 값 매핑
     if feedbackType == '균형 잡힌 답변':
@@ -79,6 +90,7 @@ def send_message():
     # 임시 응답
     return jsonify({'response': response}), 200
 
+
 @chat_bp.route('/question', methods=['POST'])
 def generate_question():
     data = request.json
@@ -133,3 +145,175 @@ def generate_question():
     json.dumps({'question': response}, ensure_ascii=False),
     mimetype='application/json'
 )
+    
+    
+@chat_bp.route('/feedback', methods=['POST'])
+def generate_feedback():
+    data = request.json
+    user_id = data.get('user_id')
+    info_id = data.get('info_id')
+    session_id = data.get('session_id')
+    final_answer = data.get('final_answer')
+    role = data.get('role')
+    feedbackLength = data.get('feedbackLength')  # max_token
+    feedbackType = data.get('feedbackType')      # temperature
+
+    # info_cache 없을 시 불러오기
+    if session_id not in info_cache:
+        info = Info.query.filter_by(info_id=info_id).first()
+        info_cache[session_id] = {
+            'position': info.position,
+            'interest': info.interest,
+            'history': info.history,
+            'language': info.language,
+            'project': info.project,
+            'resume': info.resume,
+        }
+
+    # temperature 세팅
+    if feedbackType == '균형 잡힌 답변':
+        temperature = 0.5
+    elif feedbackType == '차분한 답변':
+        temperature = 0.2
+    else:
+        temperature = 0.8
+
+    # max_token 세팅
+    if feedbackLength == '기본':
+        max_token = 500
+    elif feedbackLength == '간결':
+        max_token = 250
+    else:
+        max_token = 800
+
+    # 마지막 질문 가져오기
+    interview_question = Message.query.filter_by(
+        parent_id=parent_id[session_id],
+        message_type='question'
+    ).order_by(Message.message_id.desc()).first()
+
+    # 사용자 최종 답변 저장
+    final_message = Message(
+        session_id=session_id,
+        info_id=info_id,
+        id=user_id,
+        parent_id=parent_id[session_id],
+        sender=Sender.user,
+        message_type='fin_response',
+        content=final_answer,
+        role=role,
+        temperature=temperature,
+        max_token=max_token,
+        quality=None
+    )
+    db.session.add(final_message)
+    db.session.commit()
+
+    # ✅ LLM 호출
+    # feedback_text, quality = feedback_response(
+    #     interview_question.content,
+    #     final_answer,
+    #     info_cache,
+    #     session_id,
+    #     role,
+    #     temperature,
+    #     max_token
+    # )
+    feedback_text, quality = 'temporary feedback', None
+
+    # 피드백 저장
+    feedback_message = Message(
+        session_id=session_id,
+        info_id=info_id,
+        id=user_id,
+        parent_id=parent_id[session_id],
+        sender=Sender.system,
+        message_type='feedback',
+        content=feedback_text,
+        role=role,
+        temperature=temperature,
+        max_token=max_token,
+        quality=quality
+    )
+    db.session.add(feedback_message)
+    db.session.commit()
+
+    return jsonify({'feedback': feedback_text, 'quality': quality}), 200  # ✅ 프론트에 quality까지 전달
+
+
+
+
+@chat_bp.route('/report', methods=['POST'])
+def comprehensive_report():
+    data = request.json
+    user_id = data['user_id']
+    session_id = data['session_id']
+    info_id = data['info_id']
+    role = data['role']
+    feedbackLength = data['feedbackLength']
+    feedbackType = data['feedbackType']
+    
+    if session_id not in info_cache:
+        info = Info.query.filter_by(info_id=info_id).first()
+        info_cache[session_id] = {
+            'position': info.position,
+            'interest': info.interest,
+            'history': info.history,
+            'language': info.language,
+            'project': info.project,
+            'resume': info.resume,
+        }
+        
+    if feedbackType == '균형 잡힌 답변':
+        temperature = 0.5
+    elif feedbackType == '차분한 답변':
+        temperature = 0.2
+    else:
+        temperature == 0.8
+        
+    if feedbackLength == '기본':
+        max_token = 500
+    elif feedbackLength == '간결':
+        max_token = 250
+    else: 
+        max_token = 800
+        
+    cache = []
+    interview_qs = (
+        Message.query
+        .filter_by(session_id=session_id, message_type='interview_q')
+        .order_by(Message.message_id.asc())
+        .limit(10)
+        .all()
+    )
+
+    for q in interview_qs:
+        user_response = Message.query.filter_by(parent_id=q.message_id, message_type='question').first()
+        feedback = Message.query.filter_by(parent_id=q.message_id, message_type='feedback').first()
+        #quality = Message.query.filter_by(parent_id=q.message_id, message_type = )
+
+        cache.append({
+            'interview_question': q.content,
+            'user_response': user_response.content if user_response else '',
+            'feedback': feedback.content if feedback else '',
+        })
+        
+    #report = report_response(cache, info_cache, user_id, session_id, info_id, role, max_token, temperature)
+    report = """
+        1. 언어적 표현 특징
+        - 문장이 명확하고 핵심을 잘 전달함
+        - 일관된 어조와 전문성을 유지함
+
+        2. 취약 부분
+        - 일부 질문에 대한 기술적 깊이가 부족함
+        - 구체적인 사례나 수치 제시가 아쉬움
+
+        3. 개선해야 할 점
+        - 프로젝트 중심의 경험을 더 부각시키고, 관련 기술을 명확히 설명할 것
+        - STAR 기법을 활용하여 구조적인 답변을 연습할 것
+
+        4. 면접 대비 정도 추이
+        - 기본기는 탄탄하나, 실무 중심의 경험과 문제 해결 능력 표현이 강화되면 실전 면접에서 높은 평가 가능
+    """
+    
+    return jsonify({'report': report}), 200
