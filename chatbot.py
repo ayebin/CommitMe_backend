@@ -168,7 +168,7 @@ def feedback_response(interview_question, final_response, info_cache, session_id
             result = response.json()
             message = result["choices"][0]["message"]["content"].strip()
 
-            # ✅ JSON 형식으로 응답했는지 확인
+            # JSON 형식으로 응답했는지 확인
             parsed = json.loads(message)
             feedback = parsed.get("content", "").strip()
             quality = parsed.get("quality", None)
@@ -202,10 +202,20 @@ def report_model(cache, info_cache, user_id, session_id, info_id, role, max_toke
     아래는 사용자의 10개의 면접 문항, 답변, 피드백입니다. 이를 바탕으로 종합적인 보고서를 작성해 주세요.
     
     ### Report format
-    1. 언어적 표현 특징
-    2. 취약 부분
-    3. 개선해야 할 점
-    4. 답변의 종합적인 퀄리티로 보는 면접 대비 정도 추이
+    항목 제목은 반드시 대괄호(`[]`)로 감싸고, 각 항목마다 2줄 이상의 문장으로 구체적으로 작성해주세요.
+
+    [언어적 표현 특징]  
+    [취약 부분]  
+    [개선해야 할 점]  
+    [면접 대비 정도 추이]
+
+    예시 출력 형식:
+    [언어적 표현 특징]
+    문장이 명확하고 핵심을 잘 전달함
+    일관된 어조와 전문성을 유지함
+
+    [취약 부분]
+    ...
     
     ### 면접 내용:
     {interview_content}
