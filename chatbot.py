@@ -2,6 +2,10 @@ import os
 import requests
 import json
 from dotenv import load_dotenv
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
 
 dotenv_path = os.path.join(os.path.dirname(__file__), 'api.env')
 load_dotenv(dotenv_path)
@@ -14,7 +18,18 @@ headers = {
     "Content-Type": "application/json"
 }
 
-################## Q&A Model ################## 
+persist_directory = 'database/vectordb'
+embedding_function = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+vectordb = Chroma(persist_directory = persist_directory, embedding_function = embedding_function)
+retriever = vectordb.as_retriever(search_type="mmr", search_kwargs={"k": 3, "fetch_k": 5})
+
+def generate_context_from_rag(query: str):
+    docs = retriever.get_relevant_documents(query)
+    return "\n".join([doc.page_content for doc in docs])
+
+################## Q&A Model Using RetrievalQA ##################
 def qna_model(info_cache, session_id, role, user, temperature, max_token):
     position = info_cache[session_id]['position']
     interest = info_cache[session_id]['interest']
@@ -51,6 +66,7 @@ def qna_model(info_cache, session_id, role, user, temperature, max_token):
     return data
 
 
+
 def qna_response(info_cache, session_id, role, user, temperature, max_token):
     response = requests.post(url, headers=headers, json = qna_model(info_cache, session_id, role, user, temperature, max_token))
     
@@ -60,7 +76,7 @@ def qna_response(info_cache, session_id, role, user, temperature, max_token):
     else:
         return f'response.status_code, response.text'
 
-################## Question Generation Model ################## 
+################## Question ##################
 def gen_q_model(info_cache, session_id, role):
     position = info_cache[session_id]['position']
     interest = info_cache[session_id]['interest']
@@ -69,13 +85,23 @@ def gen_q_model(info_cache, session_id, role):
     project = info_cache[session_id]['project']
     resume = info_cache[session_id]['resume']
 
+    context = generate_context_from_rag(f"{position}, {interest}, {project}, {resume}")
+
     system_template = f'''
-    당신은 개발 및 AI 분야에 특화된 면접관입니다. 
-    지원자의 역량, 문제 해결 능력, 기술 이해도, 협업 경험 등을 평가하기 위해 체계적이고 날카로운 질문을 합니다.
-    질문은 사용자의 정보에 맞춤형으로 이루어져야 하며, 실제 기업 면접과 유사한 수준의 깊이를 지닙니다. 
+    당신은 개발 및 AI 분야에 특화된 면접관입니다.
+    질문은 사용자의 정보에 맞춤형으로 이루어져야 하며, 실제 기업 면접과 유사한 수준의 깊이를 지닙니다.
     당신의 면접 스타일은 {role}입니다. 이 스타일에 충실하여 사용자 맞춤형 질문을 제시합니다.
     질문의 길이는 길지 않아야 합니다.
+    질문은 10개를 생성합니다.
     
+    ### 출력 형식:
+    다음의 형식을 반드시 지켜서 10개의 질문을 제시하세요. 각 질문 앞에는 "- 질문 N:" 형태의 라벨을 붙이세요.
+
+    예시:
+    - 질문 1: 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?
+    - 질문 2: 최근 관심 있는 기술 트렌드는 무엇인가요?
+    (총 10개)
+
     ### 사용자 정보:
     - 희망 직무: {position}
     - 현재 관심사: {interest}
@@ -83,31 +109,34 @@ def gen_q_model(info_cache, session_id, role):
     - 주로 사용하거나 사용할 수 있는 언어: {language}
     - 프로젝트 경험: {project}
     - 이력서 정보: {resume}
+
+    ### 참고 자료 (RAG 기반 문서):
+    {context}
     '''
-    
+
     data = {
-    "model": "sonar",
-    "messages": [
-        {'role': 'system', 'content': system_template},
-        {"role": "user", "content": '질문을 생성해줘'}
-    ],
-    }   
-    
+        "model": "sonar",
+        "messages": [
+            {'role': 'system', 'content': system_template},
+            {"role": "user", "content": '질문을 생성해줘'}
+        ],
+    }
+
     return data
 
-    
 def gen_q_response(info_cache, session_id, role):
-    response = requests.post(url, headers=headers, json = gen_q_model(info_cache, session_id, role))
-    
+    response = requests.post(url, headers=headers, json=gen_q_model(info_cache, session_id, role))
+
     if response.status_code == 200:
         result = response.json()
         return result["choices"][0]["message"]["content"]
     else:
-        return f'response.status_code, response.text'
-    
-    
-################## Feedback Model ################## 
-def feedback_model(interview_question, final_response, info_cache, session_id, role, temperature, max_token):
+        return f'{response.status_code}, {response.text}'
+
+def ground_truth_answer(info_cache, session_id, interview_question,temperature, max_token):
+    context = generate_context_from_rag(interview_question)
+
+     # 2. Get candidate info
     position = info_cache[session_id]['position']
     interest = info_cache[session_id]['interest']
     history = info_cache[session_id]['history']
@@ -115,18 +144,70 @@ def feedback_model(interview_question, final_response, info_cache, session_id, r
     project = info_cache[session_id]['project']
     resume = info_cache[session_id]['resume']
 
+    # 3. Build prompt
+    system_template = f'''
+    당신은 개발 및 AI 분야에 면접을 보러온 지원자입니다.
+    아래의 지원자 본인에 정보와 참고 문서를 바탕으로 모범 답변을 생성하세요.
+    답변은 논리성, 구체성, 표현력, 경험과의 연관성이 잘 드러나야합니다.
+
+    ### 사용자 정보:
+    - 희망 직무: {position}
+    - 현재 관심사: {interest}
+    - 경력: {history}
+    - 주로 사용하거나 사용할 수 있는 언어: {language}
+    - 프로젝트 경험: {project}
+    - 이력서 정보: {resume}
+
+    ### 참고 자료 (RAG 기반 문서):
+    {context}
+
+    ### 면접 질문:
+    {interview_question}
+    '''
+
+    data = {
+        "model": "sonar",
+        "messages": [
+            {'role': 'system', 'content': system_template},
+            {"role": "user", "content": "모범 답변을 생성해줘"}
+        ],
+        "temperature": temperature,
+        'max_tokens':  max_token
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 200:
+        result = response.json()
+        return result["choices"][0]["message"]["content"].strip()
+    else:
+        return f"{response.status_code}, {response.text}"
+
+    
+    
+################## Feedback Model ################## 
+def feedback_model(interview_question,gt_answer,final_response, info_cache, session_id, role, temperature, max_token):
+    position = info_cache[session_id]['position']
+    interest = info_cache[session_id]['interest']
+    history = info_cache[session_id]['history']
+    language = info_cache[session_id]['language']
+    project = info_cache[session_id]['project']
+    resume = info_cache[session_id]['resume']
+
+
     system_template = f'''
     당신은 개발 및 AI 분야의 면접을 대비하는 지원자의 응답에 피드백을 제공하는 역할을 합니다.
     면접관의 입장이 되어, 아래 면접 질문에 대한 지원자의 응답을 평가하고, 스타일이 "{role}"인 면접관으로서 다음의 기준에 따라 피드백을 작성하세요.
 
+    - 면접 질문에 대한 모범 답변과 지원자의 응답을 비교
     - 답변의 논리성, 구체성, 표현력, 경험과의 연관성, 개선할 부분
     - 각 항목을 간결하고 명확하게 서술 (불필요하게 장황하지 않게)
-    - 마지막에 피드백의 전반적인 퀄리티 점수를 1~5 범위로 부여 (5는 완벽에 가까움)
+    - 위 평가 항목에 따른 지원자의 응답의 전반적인 퀄리티를 1~5 범위의 점수로 부여 (5는 완벽에 가까움)
 
     피드백 작성 후 아래 JSON 형식으로 출력하세요:
     {{
+        "ground-truth: [모범 답안],
         "content": "[피드백 본문]",
-        "quality": 3
+        "quality": 3,
     }}
     
     ### 면접관의 질문:
@@ -134,6 +215,9 @@ def feedback_model(interview_question, final_response, info_cache, session_id, r
     
     ### 면접관의 질문에 대한 지원자 답변:
     {final_response}
+
+    ### 면접관의 질문에 대한 모범 답변:
+    {gt_answer}
     
     ### 사용자 정보:
     - 희망 직무: {position}
@@ -156,8 +240,8 @@ def feedback_model(interview_question, final_response, info_cache, session_id, r
     
     return data
     
-def feedback_response(interview_question, final_response, info_cache, session_id, role, temperature, max_token):
-    payload = feedback_model(interview_question, final_response, info_cache, session_id, role, temperature, max_token)
+def feedback_response(interview_question, gt_answer, final_response, info_cache, session_id, role, temperature, max_token):
+    payload = feedback_model(interview_question, gt_answer, final_response, info_cache, session_id, role, temperature, max_token)
     try:
         response = requests.post(url, headers=headers, json=payload)
     except Exception as e:

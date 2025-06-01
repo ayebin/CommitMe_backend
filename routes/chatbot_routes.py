@@ -2,14 +2,18 @@ from flask import Blueprint, request, jsonify, Response
 from sqlalchemy.sql import exists
 from models import db, Session, Message, Sender, Info
 from datetime import datetime
-from chatbot import gen_q_response, qna_response, feedback_response, report_response
+from chatbot import gen_q_response, qna_response, feedback_response, report_response, ground_truth_answer
 import json
+import re
 
 chat_bp = Blueprint('chat_bp', __name__)
 
 # info global 저장.
 info_cache = {}
 parent_id = {}
+question_cache = {}
+global_q_index = 1
+is_gen_q = False
 
 @chat_bp.route('/chatting', methods=['POST'])
 def send_message():
@@ -68,8 +72,8 @@ def send_message():
         
     # print(info_cache[session_id]['position']) 확인용
     
-    #response = get_response(info_cache, session_id, role, message, temperature, max_token)
-    response = 'Hello'
+    response = qna_response(info_cache, session_id, role, message, temperature, max_token)
+    #response = 'Hello'
     
     bot_message = Message(
         session_id = session_id,
@@ -90,9 +94,15 @@ def send_message():
     # 임시 응답
     return jsonify({'response': response}), 200
 
+def parse_questions(text: str) -> dict:
+    pattern = r"- 질문\s*(\d+)\s*:\s*(.+)"
+    matches = re.findall(pattern, text)
+    return {num: question.strip() for num, question in matches}
 
 @chat_bp.route('/question', methods=['POST'])
 def generate_question():
+    global question_cache, global_q_index, is_gen_q
+    
     data = request.json
     
     message = data.get('message')
@@ -118,13 +128,24 @@ def generate_question():
             'project': info.project,
             'resume': info.resume,
         }
-        
-    #response = qna_response(info_cache, session_id, role)
-    if session_id in parent_id:
-        temp = parent_id[session_id]
-    else:
-        temp = 1  # 혹은 적절한 기본값
-    response = f'temporary question {temp}'
+    
+    if is_gen_q == True:
+        question_cache = {}
+        response = gen_q_response(info_cache, session_id, role)
+        print(f'LLM 질문 전체 response: {response}')  # 이미 string임
+        question_cache = parse_questions(response)
+        print(f'question_cache after parse: {question_cache}')
+        is_gen_q = False
+    
+    current_q = question_cache.get(str(global_q_index))
+    if not current_q:
+        return jsonify({'error': '질문이 없습니다.'}), 400
+    
+    # if session_id in parent_id:
+    #     temp = parent_id[session_id]
+    # else:
+    #     temp = 1  # 혹은 적절한 기본값
+    # response = f'temporary question {temp}'
     
     interview_question = Message(
         session_id = session_id,
@@ -133,18 +154,19 @@ def generate_question():
         parent_id = None,
         sender = Sender.system,
         message_type = 'interview_q',
-        content = response,
+        content = current_q,
         role = role
     )
     db.session.add(interview_question)
     db.session.commit()
     
     parent_id[session_id] = interview_question.message_id
+    global_q_index += 1
+    if global_q_index > 10:
+        is_gen_q = True
+        global_q_index = 1
     
-    return Response(
-    json.dumps({'question': response}, ensure_ascii=False),
-    mimetype='application/json'
-)
+    return jsonify({'question': current_q})
     
     
 @chat_bp.route('/feedback', methods=['POST'])
@@ -185,12 +207,16 @@ def generate_feedback():
         max_token = 250
     else:
         max_token = 800
-
+    
+    print("parent_id:", parent_id)
+    print("session_id:", session_id)
+    print("parent_id[session_id]:", parent_id.get(session_id))
+    
     # 마지막 질문 가져오기
     interview_question = Message.query.filter_by(
-        parent_id=parent_id[session_id],
-        message_type='question'
-    ).order_by(Message.message_id.desc()).first()
+        message_id=parent_id[session_id],
+        message_type='interview_q'
+    ).first()
 
     # 사용자 최종 답변 저장
     final_message = Message(
@@ -209,17 +235,21 @@ def generate_feedback():
     db.session.add(final_message)
     db.session.commit()
 
+    # 현재 parent id -> message db -> parent_id에 해당하는 지문 가져오기. 
+    gt = ground_truth_answer(info_cache, session_id, interview_question.content, temperature, max_token)
+    
     # ✅ LLM 호출
-    # feedback_text, quality = feedback_response(
-    #     interview_question.content,
-    #     final_answer,
-    #     info_cache,
-    #     session_id,
-    #     role,
-    #     temperature,
-    #     max_token
-    # )
-    feedback_text, quality = 'temporary feedback', None
+    feedback_text, quality = feedback_response(
+        interview_question.content,
+        gt,
+        final_answer,
+        info_cache,
+        session_id,
+        role,
+        temperature,
+        max_token
+    )
+    #feedback_text, quality = 'temporary feedback', None
 
     # 피드백 저장
     feedback_message = Message(
@@ -298,22 +328,22 @@ def comprehensive_report():
             'feedback': feedback.content if feedback else '',
         })
         
-    #report = report_response(cache, info_cache, user_id, session_id, info_id, role, max_token, temperature)
-    report = """
-        [언어적 표현 특징]
-        문장이 명확하고 핵심을 잘 전달함
-        일관된 어조와 전문성을 유지함
+    report = report_response(cache, info_cache, user_id, session_id, info_id, role, max_token, temperature)
+    # report = """
+    #     [언어적 표현 특징]
+    #     문장이 명확하고 핵심을 잘 전달함
+    #     일관된 어조와 전문성을 유지함
 
-        [취약 부분]
-        일부 질문에 대한 기술적 깊이가 부족함
-        구체적인 사례나 수치 제시가 아쉬움
+    #     [취약 부분]
+    #     일부 질문에 대한 기술적 깊이가 부족함
+    #     구체적인 사례나 수치 제시가 아쉬움
 
-        [개선해야 할 점]
-        프로젝트 중심의 경험을 더 부각시키고, 관련 기술을 명확히 설명할 것
-        STAR 기법을 활용하여 구조적인 답변을 연습할 것
+    #     [개선해야 할 점]
+    #     프로젝트 중심의 경험을 더 부각시키고, 관련 기술을 명확히 설명할 것
+    #     STAR 기법을 활용하여 구조적인 답변을 연습할 것
 
-        [면접 대비 정도 추이]
-        기본기는 탄탄하나, 실무 중심의 경험과 문제 해결 능력 표현이 강화되면 실전 면접에서 높은 평가 가능
-    """
+    #     [면접 대비 정도 추이]
+    #     기본기는 탄탄하나, 실무 중심의 경험과 문제 해결 능력 표현이 강화되면 실전 면접에서 높은 평가 가능
+    # """
     
     return jsonify({'report': report}), 200
