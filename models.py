@@ -54,7 +54,7 @@ class Message(db.Model):
     id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable = False)
     sender = db.Column(db.Enum(Sender), nullable=True)
     message_type = db.Column(db.Enum(Message_type), nullable = True)
-    content = db.Column(db.String(5000))
+    content = db.Column(db.String(50000))
     role = db.Column(db.String(100))
     temperature = db.Column(db.Float)
     max_token = db.Column(db.Integer)
