@@ -11,7 +11,7 @@ docs = loader.load()
 embedding_function = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 # 3. Define persist directory
-persist_directory = 'database/vectordb'
+persist_directory = '../database/vectordb'
 
 # 4. Create and persist Chroma vectorstore
 vectordb = Chroma.from_documents(

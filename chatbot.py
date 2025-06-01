@@ -15,7 +15,7 @@ load_dotenv(dotenv_path)
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 
 # Load vectordb and retriever
-persist_directory = 'db/vectordb'
+persist_directory = 'database/vectordb'
 embedding_function = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
