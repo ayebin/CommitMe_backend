@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, Response
 from sqlalchemy.sql import exists
-from models import db, Session, Message, Sender, Info
+from models import db, Session, Message, Sender, Info, Report
 from datetime import datetime
 from chatbot import gen_q_response, qna_response, feedback_response, report_response, ground_truth_answer
 import json
@@ -13,7 +13,7 @@ info_cache = {}
 parent_id = {}
 question_cache = {}
 global_q_index = 1
-is_gen_q = False
+is_gen_q = True
 
 @chat_bp.route('/chatting', methods=['POST'])
 def send_message():
@@ -72,8 +72,8 @@ def send_message():
         
     # print(info_cache[session_id]['position']) 확인용
     
-    response = qna_response(info_cache, session_id, role, message, temperature, max_token)
-    #response = 'Hello'
+    #response = qna_response(info_cache, session_id, role, message, temperature, max_token)
+    response = 'Hello test test test test test test test test test test test test test test test test test test test test'
     
     bot_message = Message(
         session_id = session_id,
@@ -129,23 +129,23 @@ def generate_question():
             'resume': info.resume,
         }
     
-    if is_gen_q == True:
-        question_cache = {}
-        response = gen_q_response(info_cache, session_id, role)
-        print(f'LLM 질문 전체 response: {response}')  # 이미 string임
-        question_cache = parse_questions(response)
-        print(f'question_cache after parse: {question_cache}')
-        is_gen_q = False
+    # if is_gen_q == True:
+    #     question_cache = {}
+    #     response = gen_q_response(info_cache, session_id, role)
+    #     #print(f'LLM 질문 전체 response: {response}')  # 이미 string임
+    #     question_cache = parse_questions(response)
+    #     #print(f'question_cache after parse: {question_cache}')
+    #     is_gen_q = False
     
-    current_q = question_cache.get(str(global_q_index))
-    if not current_q:
-        return jsonify({'error': '질문이 없습니다.'}), 400
+    # current_q = question_cache.get(str(global_q_index))
+    # if not current_q:
+    #     return jsonify({'error': '질문이 없습니다.'}), 400
     
-    # if session_id in parent_id:
-    #     temp = parent_id[session_id]
-    # else:
-    #     temp = 1  # 혹은 적절한 기본값
-    # response = f'temporary question {temp}'
+    if session_id in parent_id:
+        temp = parent_id[session_id]
+    else:
+        temp = 1  # 혹은 적절한 기본값
+    current_q = f'temporary question {temp} test test test test test test test test test test test test test test test test test test test test test test test test test test test'
     
     interview_question = Message(
         session_id = session_id,
@@ -239,17 +239,17 @@ def generate_feedback():
     gt = ground_truth_answer(info_cache, session_id, interview_question.content, temperature, max_token)
     
     # ✅ LLM 호출
-    feedback_text, quality = feedback_response(
-        interview_question.content,
-        gt,
-        final_answer,
-        info_cache,
-        session_id,
-        role,
-        temperature,
-        max_token
-    )
-    #feedback_text, quality = 'temporary feedback', None
+    # feedback_text, quality = feedback_response(
+    #     interview_question.content,
+    #     gt,
+    #     final_answer,
+    #     info_cache,
+    #     session_id,
+    #     role,
+    #     temperature,
+    #     max_token
+    # )
+    feedback_text, quality = 'temporary feedback', None
 
     # 피드백 저장
     feedback_message = Message(
@@ -271,7 +271,18 @@ def generate_feedback():
     return jsonify({'feedback': feedback_text, 'quality': quality}), 200  # ✅ 프론트에 quality까지 전달
 
 
+def parse_report_sections(report_text):
+    import re
 
+    pattern = re.compile(r'^\s*\[(.+?)\]\s*\n([\s\S]+?)(?=\n\s*\[|$)', re.MULTILINE)
+    sections = dict(re.findall(pattern, report_text))
+
+    return {
+        'expression': sections.get('언어적 표현 특징', '').strip(),
+        'weak': sections.get('취약 부분', '').strip(),
+        'fix': sections.get('개선해야 할 점', '').strip(),
+        'score': sections.get('면접 대비 정도 추이', '').strip(),
+    }
 
 @chat_bp.route('/report', methods=['POST'])
 def comprehensive_report():
@@ -328,22 +339,41 @@ def comprehensive_report():
             'feedback': feedback.content if feedback else '',
         })
         
-    report = report_response(cache, info_cache, user_id, session_id, info_id, role, max_token, temperature)
-    # report = """
-    #     [언어적 표현 특징]
-    #     문장이 명확하고 핵심을 잘 전달함
-    #     일관된 어조와 전문성을 유지함
+    #report = report_response(cache, info_cache, user_id, session_id, info_id, role, max_token, temperature)
+    report = """
+        [언어적 표현 특징]
+        문장이 명확하고 핵심을 잘 전달함
+        일관된 어조와 전문성을 유지함
 
-    #     [취약 부분]
-    #     일부 질문에 대한 기술적 깊이가 부족함
-    #     구체적인 사례나 수치 제시가 아쉬움
+        [취약 부분]
+        일부 질문에 대한 기술적 깊이가 부족함
+        구체적인 사례나 수치 제시가 아쉬움
 
-    #     [개선해야 할 점]
-    #     프로젝트 중심의 경험을 더 부각시키고, 관련 기술을 명확히 설명할 것
-    #     STAR 기법을 활용하여 구조적인 답변을 연습할 것
+        [개선해야 할 점]
+        프로젝트 중심의 경험을 더 부각시키고, 관련 기술을 명확히 설명할 것
+        STAR 기법을 활용하여 구조적인 답변을 연습할 것
 
-    #     [면접 대비 정도 추이]
-    #     기본기는 탄탄하나, 실무 중심의 경험과 문제 해결 능력 표현이 강화되면 실전 면접에서 높은 평가 가능
-    # """
+        [면접 대비 정도 추이]
+        기본기는 탄탄하나, 실무 중심의 경험과 문제 해결 능력 표현이 강화되면 실전 면접에서 높은 평가 가능
+    """
+    
+    # report DB 저장
+    
+    # 파싱
+    parsed = parse_report_sections(report)
+
+    # DB 저장
+    new_report = Report(
+        session_id=session_id,
+        info_id=info_id,
+        id=user_id,
+        expression=parsed['expression'],
+        weak=parsed['weak'],
+        fix=parsed['fix'],
+        score=parsed['score'],
+    )
+
+    db.session.add(new_report)
+    db.session.commit()
     
     return jsonify({'report': report}), 200
