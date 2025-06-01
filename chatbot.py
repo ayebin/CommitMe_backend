@@ -1,6 +1,7 @@
 import os
 import requests
 import json
+import re
 from dotenv import load_dotenv
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -61,7 +62,7 @@ def qna_model(info_cache, session_id, role, user, temperature, max_token):
         {"role": "user", "content": user}
     ],
     "temperature": temperature,
-    'max_tokens':  max_token
+    #'max_tokens':  max_token
     }   
     
     return data
@@ -95,7 +96,6 @@ def gen_q_model(info_cache, session_id, role):
     질문의 길이는 길지 않아야 합니다.
     질문은 10개를 생성합니다.
     출력 형식을 엄격하게 지키세요.
-    총 길이는 {max_token} 토큰을 넘지 않아야 하는 것을 명심하세요.
     
     ### 출력 형식:
     다음의 형식을 반드시 지켜서 10개의 질문을 제시하세요. 각 질문 앞에는 "- 질문 N:" 형태의 라벨을 붙이세요.
@@ -175,7 +175,7 @@ def ground_truth_answer(info_cache, session_id, interview_question,temperature, 
             {"role": "user", "content": "모범 답변을 생성해줘"}
         ],
         "temperature": temperature,
-        'max_tokens':  max_token
+        #'max_tokens':  max_token
     }
 
     response = requests.post(url, headers=headers, json=data)
@@ -200,20 +200,26 @@ def feedback_model(interview_question,gt_answer,final_response, info_cache, sess
     system_template = f'''
     당신은 개발 및 AI 분야의 면접을 대비하는 지원자의 응답에 피드백을 제공하는 역할을 합니다.
     면접관의 입장이 되어, 아래 면접 질문에 대한 지원자의 응답을 평가하고, 스타일이 "{role}"인 면접관으로서 다음의 기준에 따라 피드백을 작성하세요.
+    총 길이는 {max_token} 토큰을 넘지 않아야 하는 것을 명심하세요.
 
+   
+    ### 아래 형식을 *엄격하게* 따라 피드백을 생성하세요. 무슨 일이 있더라도 무조건 이 형식을 꼭 지켜야 합니다.:
+    모범 답변: [모범 답변 내용]
+    피드백: [피드백 내용]
+    답변 점수: [0~5] / 5
+    
+    예시 출력:
+    모범 답변: 프로젝트 A에서 팀 내 협업을 통해 문제를 해결한 경험이 명확히 드러났습니다...
+    피드백: 전반적으로 명확하나, 기술 스택 설명이 부족합니다...
+    답변 점수: 4 / 5
+    
+    참고 사항:
+    JSON에 들어갈 [모범 답안 내용], [피드백 본문], [점수]를 다음 참고사항을 따라 생성하세요: 
     - 면접 질문에 대한 모범 답변과 지원자의 응답을 비교
     - 답변의 논리성, 구체성, 표현력, 경험과의 연관성, 개선할 부분
     - 각 항목을 간결하고 명확하게 서술 (불필요하게 장황하지 않게)
     - 위 평가 항목에 따른 지원자의 응답의 전반적인 퀄리티를 0~5 범위의 점수로 부여 (5는 완벽에 가까움)
 
-    피드백 작성 후 아래 JSON 형식으로 출력하세요:
-    {{
-        "ground-truth: [모범 답안],
-        "content": "[피드백 본문]",
-        "quality": 3,
-    }}
-    
-    총 길이는 {max_token} 토큰을 넘지 않아야 하는 것을 명심하세요.
     
     ### 면접관의 질문:
     {interview_question}
@@ -240,34 +246,34 @@ def feedback_model(interview_question,gt_answer,final_response, info_cache, sess
         {"role": "user", "content": '피드백을 제공해줘'}
     ],
     "temperature": temperature,
-    'max_tokens':  max_token
+    #'max_tokens':  max_token
     }   
     
     return data
     
 def feedback_response(interview_question, gt_answer, final_response, info_cache, session_id, role, temperature, max_token):
     payload = feedback_model(interview_question, gt_answer, final_response, info_cache, session_id, role, temperature, max_token)
+    
     try:
         response = requests.post(url, headers=headers, json=payload)
     except Exception as e:
         return f"API 요청 실패: {e}", None
 
     if response.status_code == 200:
-        try:
-            result = response.json()
-            message = result["choices"][0]["message"]["content"].strip()
+        result = response.json()
+        message = result["choices"][0]["message"]["content"].strip()
 
-            # JSON 형식으로 응답했는지 확인
-            parsed = json.loads(message)
-            feedback = parsed.get("content", "").strip()
-            quality = parsed.get("quality", None)
+        # 점수만 추출 (예: "답변 점수: 4 / 5")
+        match = re.search(r"답변\s*점수\s*[:：]?\s*(\d+)\s*/\s*5", message)
+        quality = int(match.group(1)) if match else None
+        
+        # "답변 점수: x / 5" 줄 제거
+        cleaned_message = re.sub(r"답변\s*점수\s*[:：]?\s*\d+\s*/\s*5", "", message).strip()
 
-            return feedback, quality
-        except (json.JSONDecodeError, KeyError):
-            # 응답이 JSON이 아니거나 파싱 실패 시 fallback
-            return message, None
+        return cleaned_message, quality
     else:
         return f"{response.status_code}: {response.text}", None
+
 
 ################## Report Model ################## 
 def report_model(cache, info_cache, user_id, session_id, info_id, role, max_token, temperature):
@@ -327,7 +333,7 @@ def report_model(cache, info_cache, user_id, session_id, info_id, role, max_toke
         {"role": "user", "content": '종합 레포트를 제공해줘'}
     ],
     "temperature": temperature,
-    'max_tokens':  max_token
+    #'max_tokens':  max_token
     }   
     
     return data

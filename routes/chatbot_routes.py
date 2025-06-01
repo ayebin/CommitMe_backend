@@ -5,6 +5,7 @@ from datetime import datetime
 from chatbot import gen_q_response, qna_response, feedback_response, report_response, ground_truth_answer
 import json
 import re
+import time
 
 chat_bp = Blueprint('chat_bp', __name__)
 
@@ -73,7 +74,8 @@ def send_message():
     # print(info_cache[session_id]['position']) 확인용
     
     response = qna_response(info_cache, session_id, role, message, temperature, max_token)
-    #response = 'Hello test test test test test test test test test test test test test test test test test test test test'
+    # time.sleep(2)
+    # response = 'Hello test test test test test test test test test test test test test test test test test test test test'
     
     bot_message = Message(
         session_id = session_id,
@@ -132,9 +134,9 @@ def generate_question():
     if is_gen_q == True:
         question_cache = {}
         response = gen_q_response(info_cache, session_id, role)
-        print(f'LLM 질문 전체 response: {response}')  # 이미 string임
+        #print(f'LLM 질문 전체 response: {response}')  # 이미 string임
         question_cache = parse_questions(response)
-        print(f'question_cache after parse: {question_cache}')
+        #print(f'question_cache after parse: {question_cache}')
         is_gen_q = False
     
     current_q = question_cache.get(str(global_q_index))
@@ -208,9 +210,9 @@ def generate_feedback():
     else:
         max_token = 800
     
-    print("parent_id:", parent_id)
-    print("session_id:", session_id)
-    print("parent_id[session_id]:", parent_id.get(session_id))
+    # print("parent_id:", parent_id)
+    # print("session_id:", session_id)
+    # print("parent_id[session_id]:", parent_id.get(session_id))
     
     # 마지막 질문 가져오기
     interview_question = Message.query.filter_by(
@@ -237,6 +239,7 @@ def generate_feedback():
 
     # 현재 parent id -> message db -> parent_id에 해당하는 지문 가져오기. 
     gt = ground_truth_answer(info_cache, session_id, interview_question.content, temperature, max_token)
+    #print(gt)
     
     # ✅ LLM 호출
     feedback_text, quality = feedback_response(
