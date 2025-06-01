@@ -6,7 +6,7 @@ from flask_cors import CORS
 from routes.user_routes import user_bp # 유저 번호 자동 생성
 from routes.info_routes import info_bp
 from routes.session_routes import session_bp # 세션
-from routes.chatbot_routes import chat_bp # 메시지
+from CommitMe_backend.routes.chatbot_routes2 import chat_bp # 메시지
 import os
 
 
