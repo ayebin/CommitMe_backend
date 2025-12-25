@@ -32,8 +32,7 @@ def add_info():
         history = request.form.get('history')
         language = request.form.get('language')
         project = request.form.get('project')
-
-        # 2) 파일 받기
+        
         file = request.files.get('resume')
 
         resume_text = None

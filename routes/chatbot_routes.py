@@ -241,7 +241,6 @@ def generate_feedback():
     gt = ground_truth_answer(info_cache, session_id, interview_question.content, temperature, max_token)
     #print(gt)
     
-    # ✅ LLM 호출
     feedback_text, quality = feedback_response(
         interview_question.content,
         gt,
