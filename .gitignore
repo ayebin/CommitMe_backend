@@ -1,0 +1,6 @@
+
+# secrets
+.env
+*.env
+api.env
+chatbot/api.env
